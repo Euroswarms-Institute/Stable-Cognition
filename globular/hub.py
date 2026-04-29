@@ -14,6 +14,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
+from globular.hf_utils import safe_load_causal_lm, safe_load_tokenizer, ensure_tokenizer_padding
+
 console = Console()
 
 
@@ -94,13 +96,11 @@ def download_model(key, output_dir=None):
     console.print(f"[dim]This may take a while...[/dim]")
     
     try:
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-        
         console.print("[dim]Loading tokenizer...[/dim]")
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        tokenizer = ensure_tokenizer_padding(safe_load_tokenizer(model_name))
         
         console.print("[dim]Loading model (this may take a while)...[/dim]")
-        model = AutoModelForCausalLM.from_pretrained(
+        model = safe_load_causal_lm(
             model_name,
             device_map="cpu",  # Always CPU for download
             torch_dtype="auto",

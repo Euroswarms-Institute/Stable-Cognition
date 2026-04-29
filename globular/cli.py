@@ -13,10 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
 from rich.prompt import Prompt, Confirm
-from rich.control import Control
-from io import StringIO
 
 try:
     from huggingface_hub import HfApi, list_models, list_datasets, login, logout
@@ -37,6 +34,7 @@ def auto_scale(agents: int) -> dict:
     Automatically scale parameters based on agent count.
     No caps - scales conservatively but unlimited.
     """
+    agents = max(1, int(agents))
     if agents <= 32:
         agent_dim = 64
     else:
@@ -64,11 +62,11 @@ def auto_scale(agents: int) -> dict:
 # =============================================================================
 
 MODELS = {
-    "1": {"key": "qwen2-0.5b", "name": "Qwen2-0.5B", "hidden": 896, "layers": 24},
-    "2": {"key": "qwen2-1.5b", "name": "Qwen2-1.5B", "hidden": 1536, "layers": 28},
-    "3": {"key": "qwen2-7b", "name": "Qwen2-7B", "hidden": 3584, "layers": 28},
-    "4": {"key": "llama2-7b", "name": "Llama-2-7B", "hidden": 4096, "layers": 32},
-    "5": {"key": "llama3-8b", "name": "Llama-3-8B", "hidden": 4096, "layers": 32},
+    "1": {"key": "qwen2-0.5b", "name": "Qwen2-0.5B", "hf": "Qwen/Qwen2-0.5B", "hidden": 896, "layers": 24},
+    "2": {"key": "qwen2-1.5b", "name": "Qwen2-1.5B", "hf": "Qwen/Qwen2-1.5B", "hidden": 1536, "layers": 28},
+    "3": {"key": "qwen2-7b", "name": "Qwen2-7B", "hf": "Qwen/Qwen2-7B", "hidden": 3584, "layers": 28},
+    "4": {"key": "llama2-7b", "name": "Llama-2-7B", "hf": "meta-llama/Llama-2-7b", "hidden": 4096, "layers": 32},
+    "5": {"key": "llama3-8b", "name": "Llama-3-8B", "hf": "meta-llama/Llama-3-8B", "hidden": 4096, "layers": 32},
 }
 
 PRESETS = {
@@ -143,7 +141,7 @@ def simple_flow():
     if model_choice == "6":
         model_name = Prompt.ask("[cyan]Model path[/cyan]", default="Qwen/Qwen2-0.5B")
     else:
-        model_name = MODELS[model_choice]["name"]
+        model_name = MODELS[model_choice]["hf"]
     
     # Preset
     console.print("\n[bold cyan]2.[/bold cyan] Preset")
@@ -169,7 +167,7 @@ def simple_flow():
         except ValueError:
             agents = 128
         auto = auto_scale(agents)
-        console.print(f"[dim]Auto-scaled: {agents} agents → dim={auto['agent_dim']}, steps={auto['steps']}, heads={auto['num_heads']}[/dim]")
+        console.print(f"[dim]Auto-scaled: {agents} agents -> dim={auto['agent_dim']}, steps={auto['steps']}, heads={auto['num_heads']}[/dim]")
         size = {"name": "Heavy+", "agents": agents, "dim": auto["agent_dim"], "steps": auto["steps"]}
     else:
         size = SIZES[size_choice]
@@ -293,12 +291,12 @@ def expert_flow():
     summary.add_column("", style="white")
     summary.add_row("Model", model_name)
     summary.add_row("Hidden Dim", dim)
-    summary.add_row("Layers", layers)
+    summary.add_row("Layers", str(layers))
     summary.add_row("", "")
-    summary.add_row("Agents", agents)
-    summary.add_row("Agent Dim", agent_dim)
-    summary.add_row("Steps", steps)
-    summary.add_row("Agent Heads", num_heads)
+    summary.add_row("Agents", str(agents))
+    summary.add_row("Agent Dim", str(agent_dim))
+    summary.add_row("Steps", str(steps))
+    summary.add_row("Agent Heads", str(num_heads))
     summary.add_row("", "")
     summary.add_row("Insert After", str(insert_layers))
     summary.add_row("Replace FFN", str(replace_ffn))
@@ -357,11 +355,11 @@ def expert_flow():
         console.print(f"[dim]Integrating {model_name}...[/dim]")
         try:
             import torch
-            from transformers import AutoModelForCausalLM, AutoTokenizer
             from globular import GlobularIntegrationConfig, apply_globular_to_model
+            from globular.hf_utils import safe_load_causal_lm, safe_load_tokenizer, ensure_tokenizer_padding
             
-            model = AutoModelForCausalLM.from_pretrained(model_name, device_map="cpu")
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            model = safe_load_causal_lm(model_name, device_map="cpu", torch_dtype=torch.float32)
+            tokenizer = ensure_tokenizer_padding(safe_load_tokenizer(model_name))
             
             config = GlobularIntegrationConfig(
                 insert_after_layers=insert_layers,
@@ -399,84 +397,6 @@ def expert_flow():
         console.print(f"  2. Then use [2] above with trained checkpoint")
     
     Prompt.ask("[dim]Press Enter...[/dim]", default="")
-    
-    # Model
-    console.print("\n[bold cyan]1.[/bold cyan] Select base model")
-    for k, m in MODELS.items():
-        console.print(f"    [{k}] {m['name']} ({m['hidden']} hidden, {m['layers']} layers)")
-    console.print("    [6] Custom model")
-    model_choice = Prompt.ask("[cyan]Model[/cyan]", choices=list(MODELS.keys()) + ["6"], default="1")
-    
-    if model_choice == "6":
-        model_name = Prompt.ask("[cyan]Model name or path[/cyan]", default="Qwen/Qwen2-0.5B")
-        model = {"name": model_name, "hidden": 896, "layers": 24}
-    else:
-        model = MODELS[model_choice]
-    
-    # Preset
-    console.print("\n[bold cyan]2.[/bold cyan] Select preset")
-    for k, p in PRESETS.items():
-        console.print(f"    [{k}] {p['name']} - {p['focus']}")
-    preset_choice = Prompt.ask("[cyan]Preset[/cyan]", choices=list(PRESETS.keys()), default="1")
-    preset = PRESETS[preset_choice]
-    
-    # Size
-    console.print("\n[bold cyan]3.[/bold cyan] Select size")
-    for k, s in SIZES.items():
-        console.print(f"    [{k}] {s['name']} ({s['agents']} agents)")
-    console.print("    [4] Heavy+ (custom - auto-scales)")
-    size_choice = Prompt.ask("[cyan]Size[/cyan]", choices=["1", "2", "3", "4"], default="2")
-    
-    if size_choice == "4":
-        custom_agents = Prompt.ask("[cyan]Agent count (or 'auto')[/cyan]", default="128")
-        if custom_agents.lower() == "auto":
-            custom_agents = "128"
-        agents = int(custom_agents)
-        auto = auto_scale(agents)
-        console.print(f"[dim]Auto-scaled: agents={agents} → dim={auto['agent_dim']}, steps={auto['steps']}, heads={auto['num_heads']}[/dim]")
-        agent_dim = auto["agent_dim"]
-        steps = auto["steps"]
-    else:
-        size = SIZES[size_choice]
-        agents = size["agents"]
-        agent_dim = size["dim"]
-        steps = size["steps"]
-    
-    # Layers
-    console.print("\n[bold cyan]4.[/bold cyan] Insert after")
-    console.print("    [1] Layer 5")
-    console.print("    [2] Layer 10")
-    console.print("    [3] Layers 5, 10, 15")
-    console.print("    [4] Custom")
-    layer_choice = Prompt.ask("[cyan]Layers[/cyan]", choices=["1", "2", "3", "4"], default="1")
-    layers_map = {"1": [5], "2": [10], "3": [5, 10, 15]}
-    if layer_choice == "4":
-        layers = [int(x) for x in Prompt.ask("[cyan]Layers[/cyan]", default="5").split(",")]
-    else:
-        layers = layers_map[layer_choice]
-    
-    # Calculate
-    params = estimate(model["hidden"], agents, agent_dim, steps)
-    total = params * len(layers)
-    
-    # Summary
-    console.print()
-    summary = Table(box=None, pad_edge=True)
-    summary.add_column("", style="cyan bold")
-    summary.add_column("", style="white")
-    summary.add_row("Model", model.get("name", model["key"]))
-    summary.add_row("Preset", preset["name"])
-    summary.add_row("Agents", str(agents))
-    summary.add_row("Agent Dim", str(agent_dim))
-    summary.add_row("Steps", str(steps))
-    summary.add_row("Layers", str(layers))
-    summary.add_row("", "")
-    summary.add_row("[green]Per Layer", f"[green]{params:,}[/green]")
-    summary.add_row("[green]Total", f"[green]{total:,}[/green]")
-    
-    console.print(Panel(summary, title="[bold green]Summary[/bold green]", border_style="green"))
-    console.print()
-    Prompt.ask("[dim]Press Enter...[/dim]", default="")
 
 
 # =============================================================================
@@ -496,7 +416,7 @@ def integrate_flow():
     if model_choice == "6":
         hf_model = Prompt.ask("[cyan]HuggingFace model path[/cyan]", default="Qwen/Qwen2-0.5B")
     else:
-        hf_model = MODELS[model_choice]["name"]
+        hf_model = MODELS[model_choice]["hf"]
     
     console.print("\n[bold cyan]2.[/bold cyan] Globular config")
     console.print("    [1] Light (16 agents)")
@@ -514,7 +434,7 @@ def integrate_flow():
         auto = auto_scale(agents)
         agent_dim = auto["agent_dim"]
         steps = auto["steps"]
-        console.print(f"[dim]Auto-scaled: agents={agents} → dim={agent_dim}, steps={steps}[/dim]")
+        console.print(f"[dim]Auto-scaled: agents={agents} -> dim={agent_dim}, steps={steps}[/dim]")
     else:
         agents, agent_dim, steps = config_map[config_choice]
     
@@ -559,16 +479,12 @@ def run_integration(model_name, agents, agent_dim, steps, layers):
     
     try:
         import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer
         from globular import GlobularIntegrationConfig, apply_globular_to_model, count_parameters
+        from globular.hf_utils import safe_load_causal_lm, safe_load_tokenizer, ensure_tokenizer_padding
         
         # Load model
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            device_map="cpu",
-            torch_dtype=torch.float32,
-        )
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = safe_load_causal_lm(model_name, device_map="cpu", torch_dtype=torch.float32)
+        tokenizer = ensure_tokenizer_padding(safe_load_tokenizer(model_name))
         
         base_params = count_parameters(model)
         console.print(f"[green]Base model: {base_params:,} params[/green]")
@@ -812,11 +728,11 @@ def run_save_local():
     if Confirm.ask("[green]Save locally?[/green]", default=False):
         try:
             import torch
-            from transformers import AutoModelForCausalLM, AutoTokenizer
+            from globular.hf_utils import safe_load_causal_lm, safe_load_tokenizer, ensure_tokenizer_padding
             
             console.print(f"[dim]Loading {model_path}...[/dim]")
-            model = AutoModelForCausalLM.from_pretrained(model_path, device_map="cpu")
-            tokenizer = AutoTokenizer.from_pretrained(model_path)
+            model = safe_load_causal_lm(model_path, device_map="cpu")
+            tokenizer = ensure_tokenizer_padding(safe_load_tokenizer(model_path))
             
             console.print(f"[dim]Saving to {output_dir}...[/dim]")
             model.save_pretrained(output_dir)
