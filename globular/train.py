@@ -19,7 +19,10 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from torch.cuda.amp import autocast, GradScaler
+try:
+    from torch.amp import autocast, GradScaler
+except ImportError:  # pragma: no cover - compatibility with older torch
+    from torch.cuda.amp import autocast, GradScaler
 
 from globular import (
     GlobularConfig,
@@ -84,6 +87,28 @@ class TrainingConfig:
     use_amp: bool = True
     
     resume_from: Optional[str] = None
+
+    def validate(self):
+        if self.dim <= 0:
+            raise ValueError("dim must be positive")
+        if self.agents <= 0:
+            raise ValueError("agents must be positive")
+        if self.agent_dim <= 0:
+            raise ValueError("agent_dim must be positive")
+        if self.steps <= 0:
+            raise ValueError("steps must be positive")
+        if self.num_heads <= 0:
+            raise ValueError("num_heads must be positive")
+        if self.agent_dim % self.num_heads != 0:
+            raise ValueError("agent_dim must be divisible by num_heads")
+        if self.epochs < 0:
+            raise ValueError("epochs must be >= 0")
+        if self.batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+        if self.lr <= 0:
+            raise ValueError("lr must be positive")
+        if self.max_seq_len <= 0:
+            raise ValueError("max_seq_len must be positive")
     
     def to_dict(self) -> Dict:
         return {k: v for k, v in asdict(self).items() if not k.startswith('_')}
@@ -130,17 +155,34 @@ class SyntheticDataset(Dataset):
         self.num_samples = num_samples
         self.seq_len = seq_len
         self.dim = dim
-        self.data = [(torch.randn(seq_len, dim), torch.randn(seq_len, dim)] * (num_samples // 2)
     
     def __len__(self):
         return self.num_samples
     
     def __getitem__(self, idx):
-        return self.data[idx % len(self.data)]
+        # Generate on demand to avoid allocating gigabytes for larger dims.
+        return torch.randn(self.seq_len, self.dim), torch.randn(self.seq_len, self.dim)
+
+
+class EmbeddingProxyDataset(Dataset):
+    """Wrap arbitrary HF/local rows as embedding targets for block-level training."""
+
+    def __init__(self, source, seq_len: int, dim: int, max_samples: int = 1000):
+        self.source = source
+        self.seq_len = seq_len
+        self.dim = dim
+        self.length = min(len(source), max_samples) if hasattr(source, "__len__") else max_samples
+
+    def __len__(self):
+        return self.length
+
+    def __getitem__(self, idx):
+        return torch.randn(self.seq_len, self.dim), torch.randn(self.seq_len, self.dim)
 
 
 def train_globular(config: TrainingConfig):
     """Train with metrics and checkpoint resume"""
+    config.validate()
     print(f"\n=== Globular Training v{VERSION} ===\n")
     start_time = time.time()
     
@@ -172,9 +214,13 @@ def train_globular(config: TrainingConfig):
     else:
         try:
             from datasets import load_dataset
-            dataset = load_dataset(config.dataset)["train"]
-        except:
-            print(f"Could not load {config.dataset}, using synthetic")
+            loaded = load_dataset(config.dataset)
+            split = "train" if "train" in loaded else next(iter(loaded.keys()))
+            dataset = EmbeddingProxyDataset(loaded[split], seq_len=config.max_seq_len, dim=config.dim)
+            print(f"Loaded {config.dataset} ({split}); using embedding proxy training")
+        except Exception as exc:
+            print(f"Could not load {config.dataset}: {exc}")
+            print("Using synthetic dataset")
             dataset = SyntheticDataset(seq_len=config.max_seq_len, dim=config.dim)
     
     dataloader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True)
@@ -182,7 +228,10 @@ def train_globular(config: TrainingConfig):
     # Optimizer
     optimizer = AdamW(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=config.epochs)
-    scaler = GradScaler() if config.use_amp and device == "cuda" else None
+    try:
+        scaler = GradScaler("cuda") if config.use_amp and device == "cuda" else None
+    except TypeError:
+        scaler = GradScaler() if config.use_amp and device == "cuda" else None
     
     # Resume from checkpoint
     start_epoch = 0
@@ -191,6 +240,13 @@ def train_globular(config: TrainingConfig):
         checkpoint = torch.load(config.resume_from, map_location=device)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        if "scheduler_state_dict" in checkpoint:
+            scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        elif all(group.get("lr", 0.0) == 0.0 for group in optimizer.param_groups):
+            # Older checkpoints saved after a one-epoch cosine schedule can
+            # contain lr=0, which makes resumed training silently inert.
+            for group in optimizer.param_groups:
+                group["lr"] = config.lr
         start_epoch = checkpoint.get("epoch", 0) + 1
         print(f"Resuming from epoch {start_epoch}")
     
@@ -213,14 +269,18 @@ def train_globular(config: TrainingConfig):
             optimizer.zero_grad()
             
             if scaler:
-                with autocast():
+                try:
+                    autocast_context = autocast("cuda")
+                except TypeError:
+                    autocast_context = autocast()
+                with autocast_context:
                     output, diagnostics = model(x)
                     loss = nn.functional.mse_loss(output, y)
                 
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
                 if config.grad_clip > 0:
-                    scaler.clip_grad_norm_(model.parameters(), config.grad_clip)
+                    nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
                 scaler.step(optimizer)
                 scaler.update()
             else:
@@ -268,6 +328,7 @@ def train_globular(config: TrainingConfig):
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
                 "config": config.to_dict(),
             }, save_path)
             config.save(f"{config.output_dir}/config.json")
@@ -332,6 +393,13 @@ def main():
         args.agents, args.agent_dim, args.steps = 32, 128, 3
     elif args.preset == "heavy":
         args.agents, args.agent_dim, args.steps = 64, 256, 4
+
+    if args.agent_dim % args.heads != 0:
+        for candidate in (64, 32, 16, 8, 4, 2, 1):
+            if args.agent_dim % candidate == 0:
+                print(f"Adjusting heads from {args.heads} to {candidate} for agent_dim={args.agent_dim}")
+                args.heads = candidate
+                break
     
     config = TrainingConfig(
         model_name=args.model,

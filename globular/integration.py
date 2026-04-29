@@ -19,6 +19,17 @@ from dataclasses import dataclass
 
 from .config import GlobularConfig
 from .block import GlobularReasoningBlock
+from .hf_utils import safe_load_causal_lm
+
+
+def _compatible_heads(agent_dim: int, requested: Optional[int] = None) -> int:
+    """Return a head count that divides agent_dim."""
+    if requested and requested > 0 and agent_dim % requested == 0:
+        return requested
+    for heads in (64, 32, 16, 8, 4, 2, 1):
+        if agent_dim % heads == 0:
+            return heads
+    return 1
 
 
 @dataclass
@@ -61,6 +72,13 @@ class GlobularLayerWrapper(nn.Module):
         self.original_layer = original_layer
         self.globular_block = GlobularReasoningBlock(config)
         self.replace_ffn = replace_ffn
+
+    def _align_block(self, hidden_states: torch.Tensor) -> None:
+        param = next(self.globular_block.parameters(), None)
+        if param is None:
+            return
+        if param.device != hidden_states.device or param.dtype != hidden_states.dtype:
+            self.globular_block.to(device=hidden_states.device, dtype=hidden_states.dtype)
         
     def forward(self, *args, **kwargs):
         # Standard forward through original layer
@@ -69,11 +87,13 @@ class GlobularLayerWrapper(nn.Module):
         # If output is a tuple (hidden_states,), apply globular
         if isinstance(output, tuple):
             hidden_states = output[0]
+            self._align_block(hidden_states)
             states, diagnostics = self.globular_block(hidden_states)
             return (states,) + output[1:]
         else:
             # Apply globular directly
             hidden_states = output
+            self._align_block(hidden_states)
             states, diagnostics = self.globular_block(hidden_states)
             return states
 
@@ -106,12 +126,15 @@ def apply_globular_to_model(
     if integration_config is None:
         integration_config = GlobularIntegrationConfig()
     
+    model_dim = integration_config.model_dim or getattr(getattr(model, "config", None), "hidden_size", 512)
+    num_heads = _compatible_heads(integration_config.agent_dim, integration_config.num_heads)
+
     config = GlobularConfig(
-        dim=integration_config.model_dim or 512,
+        dim=model_dim,
         num_agents=integration_config.num_agents,
         agent_dim=integration_config.agent_dim,
         steps=integration_config.steps,
-        num_heads=integration_config.num_heads or 8,
+        num_heads=num_heads,
     )
     
     # Find transformer layers
@@ -146,21 +169,16 @@ def apply_globular_to_model(
         # Insert after every layer
         insert_after = list(range(num_layers))
     
-    # Create new layer list with globular
+    # Replace selected layers with wrappers. Do not insert raw modules into the
+    # transformer layer stack; HF models expect every layer to follow the
+    # original layer forward signature.
     new_layers = nn.ModuleList()
     
     for i, layer in enumerate(layers):
-        new_layers.append(layer)
-        
         if i in insert_after:
-            # Insert globular block after this layer
-            globular_block = GlobularReasoningBlock(config)
-            
-            # Create wrapper that can integrate
-            wrapper = GlobularLayerWrapper(layer, config, integration_config.replace_ffn)
-            
-            # Store in model
-            new_layers.append(globular_block)
+            new_layers.append(GlobularLayerWrapper(layer, config, integration_config.replace_ffn))
+        else:
+            new_layers.append(layer)
     
     # Replace layers in model
     if hasattr(model, "model") and hasattr(model.model, "layers"):
@@ -191,13 +209,13 @@ class GlobularLMWrapper(nn.Module):
         
         # Try to load model
         try:
-            from transformers import AutoModelForCausalLM, AutoConfig
+            from transformers import AutoConfig
             config = AutoConfig.from_pretrained(model_name)
             
             self.hidden_size = config.hidden_size
             self.num_attention_heads = getattr(config, "num_attention_heads", 8)
             
-            model = AutoModelForCausalLM.from_pretrained(model_name)
+            model = safe_load_causal_lm(model_name)
         except ImportError:
             # Fallback: create simple model
             model = None
@@ -317,8 +335,7 @@ def create_globular_model(
     
     if not enable_globular:
         try:
-            from transformers import AutoModelForCausalLM
-            return AutoModelForCausalLM.from_pretrained(base_model)
+            return safe_load_causal_lm(base_model)
         except:
             return GlobularLMWrapper(base_model)
     

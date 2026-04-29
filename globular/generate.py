@@ -11,27 +11,30 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import torch
 
+from globular.hf_utils import safe_load_causal_lm, safe_load_tokenizer, ensure_tokenizer_padding
+
+
+def _model_device(model):
+    return next(model.parameters()).device
+
 
 def generate(model_path, prompt, max_tokens, temperature, top_p):
     """Generate text with integrated model"""
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-    
     print(f"Loading {model_path}...")
     
-    model = AutoModelForCausalLM.from_pretrained(
+    model = safe_load_causal_lm(
         model_path,
         device_map="cuda" if torch.cuda.is_available() else "cpu",
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
     )
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    tokenizer = ensure_tokenizer_padding(safe_load_tokenizer(model_path))
     
-    print(f"Model loaded. Device: {model.device}")
+    print(f"Model loaded. Device: {_model_device(model)}")
     print(f"\nPrompt: {prompt}")
     print("Generating...")
     
     inputs = tokenizer(prompt, return_tensors="pt")
-    if torch.cuda.is_available():
-        inputs = {k: v.cuda() for k, v in inputs.items()}
+    inputs = {k: v.to(_model_device(model)) for k, v in inputs.items()}
     
     outputs = model.generate(
         **inputs,
@@ -55,19 +58,14 @@ def generate(model_path, prompt, max_tokens, temperature, top_p):
 
 def chat_mode(model_path):
     """Interactive chat mode"""
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-    
     print(f"Loading {model_path}...")
     
-    model = AutoModelForCausalLM.from_pretrained(
+    model = safe_load_causal_lm(
         model_path,
         device_map="cuda" if torch.cuda.is_available() else "cpu",
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
     )
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token_id = tokenizer.eos_token_id
+    tokenizer = ensure_tokenizer_padding(safe_load_tokenizer(model_path))
     
     print(f"\n[Chat mode] Type 'quit' to exit\n")
     
@@ -77,8 +75,7 @@ def chat_mode(model_path):
             break
         
         inputs = tokenizer(prompt, return_tensors="pt")
-        if torch.cuda.is_available():
-            inputs = {k: v.cuda() for k, v in inputs.items()}
+        inputs = {k: v.to(_model_device(model)) for k, v in inputs.items()}
         
         outputs = model.generate(
             **inputs,

@@ -107,6 +107,34 @@ class GlobularConfig:
     use_loop_weight_sharing: bool = True
     use_mixed_precision: bool = True
 
+    def __post_init__(self):
+        if self.dim <= 0:
+            raise ValueError("dim must be positive")
+        if self.num_agents <= 0:
+            raise ValueError("num_agents must be positive")
+        if self.agent_dim <= 0:
+            raise ValueError("agent_dim must be positive")
+        if self.steps <= 0:
+            raise ValueError("steps must be positive")
+        if self.num_heads <= 0:
+            raise ValueError("num_heads must be positive")
+        if self.agent_dim % self.num_heads != 0:
+            raise ValueError("agent_dim must be divisible by num_heads")
+        if self.kv_heads <= 0:
+            raise ValueError("kv_heads must be positive")
+        if self.use_gqa and self.num_heads % self.kv_heads != 0:
+            # Keep grouped-query attention valid without surprising runtime shape errors.
+            for candidate in (64, 32, 16, 8, 4, 2, 1):
+                if self.num_heads % candidate == 0:
+                    self.kv_heads = candidate
+                    break
+        if not 0 <= self.dropout < 1:
+            raise ValueError("dropout must be in [0, 1)")
+        if self.topk <= 0:
+            raise ValueError("topk must be positive")
+        if not 0 < self.core_ratio <= 1:
+            raise ValueError("core_ratio must be in (0, 1]")
+
 
 @dataclass
 class CPUOptimizedConfig:
@@ -145,6 +173,9 @@ class CPUOptimizedConfig:
     use_hierarchical: bool = False
     use_coevolution: bool = False
     use_meta_memory: bool = False
+    meta_memory_size: int = 1
+    num_species: int = 1
+    sub_species_per_species: int = 1
     use_bottleneck_adaptive: bool = False
     use_gqa: bool = True
     use_parameterized_similarity: bool = False
@@ -152,3 +183,22 @@ class CPUOptimizedConfig:
     use_weight_tying: bool = False
     use_loop_weight_sharing: bool = False
     use_mixed_precision: bool = False
+
+    def __post_init__(self):
+        if self.dim <= 0:
+            raise ValueError("dim must be positive")
+        if self.num_agents <= 0:
+            raise ValueError("num_agents must be positive")
+        if self.agent_dim <= 0:
+            raise ValueError("agent_dim must be positive")
+        if self.steps <= 0:
+            raise ValueError("steps must be positive")
+        if self.num_heads <= 0:
+            raise ValueError("num_heads must be positive")
+        if self.agent_dim % self.num_heads != 0:
+            raise ValueError("agent_dim must be divisible by num_heads")
+        if self.use_gqa and self.num_heads % self.kv_heads != 0:
+            for candidate in (16, 8, 4, 2, 1):
+                if self.num_heads % candidate == 0:
+                    self.kv_heads = candidate
+                    break

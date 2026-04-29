@@ -39,7 +39,7 @@ class NoveltySearch:
         """Compute novelty scores vs archive."""
         b, n, d = behaviors.shape
 
-        if archive is None or self.archive_filled.sum() == 0:
+        if archive is None or not bool(self.archive_filled.item()):
             return torch.zeros(b, n, device=behaviors.device), torch.zeros(b, device=behaviors.device)
 
         normed_behaviors = torch.nn.functional.normalize(behaviors, dim=-1)
@@ -68,7 +68,7 @@ class NoveltySearch:
         self.archive_idx = (self.archive_idx + 1) % self.archive_size
 
         if self.archive_idx == 0:
-            self.archive_filled = torch.tensor(True)
+            self.archive_filled = torch.tensor(True, device=behaviors.device)
 
     def decay_ratio(self, step: int) -> float:
         """Apply exponential decay to novelty ratio."""

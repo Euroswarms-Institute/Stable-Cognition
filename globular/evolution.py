@@ -78,7 +78,7 @@ class EvolutionOperators:
         normed_agents = F.normalize(agents, dim=-1)
         normed_centroids = F.normalize(centroids, dim=-1)
 
-        similarities = torch.einsum("bnd,cd->bc", normed_agents, normed_centroids)
+        similarities = torch.einsum("bnd,cd->bnc", normed_agents, normed_centroids)
         species_ids = similarities.argmax(dim=-1)
 
         species_mask = F.one_hot(species_ids, num_classes=centroids.size(0)).float()

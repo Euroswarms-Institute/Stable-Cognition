@@ -12,7 +12,10 @@ class GlobularReasoningBlock(nn.Module):
 
     def __init__(self, cfg: GlobularConfig):
         super().__init__()
-        assert cfg.dim > 0
+        if cfg.dim <= 0:
+            raise ValueError("cfg.dim must be positive")
+        if cfg.agent_dim % cfg.num_heads != 0:
+            raise ValueError("cfg.agent_dim must be divisible by cfg.num_heads")
 
         self.cfg = cfg
         self.field = GlobularAgentField(cfg)

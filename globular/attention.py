@@ -37,9 +37,17 @@ class GQA(nn.Module):
         dropout: float = 0.0,
     ):
         super().__init__()
+        if dim <= 0:
+            raise ValueError("dim must be positive")
+        if num_heads <= 0:
+            raise ValueError("num_heads must be positive")
+        if dim % num_heads != 0:
+            raise ValueError("dim must be divisible by num_heads")
         self.dim = dim
         self.num_heads = num_heads
         self.kv_heads = kv_heads or max(1, num_heads // 4)
+        if self.kv_heads <= 0 or num_heads % self.kv_heads != 0:
+            raise ValueError("kv_heads must be positive and divide num_heads")
         self.head_dim = dim // num_heads
 
         self.q_proj = nn.Linear(dim, dim, bias=False)
@@ -90,6 +98,12 @@ class MultiHeadAttention(nn.Module):
         dropout: float = 0.0,
     ):
         super().__init__()
+        if dim <= 0:
+            raise ValueError("dim must be positive")
+        if num_heads <= 0:
+            raise ValueError("num_heads must be positive")
+        if dim % num_heads != 0:
+            raise ValueError("dim must be divisible by num_heads")
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
