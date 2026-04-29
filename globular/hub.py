@@ -19,6 +19,10 @@ from globular.hf_utils import safe_load_causal_lm, safe_load_tokenizer, ensure_t
 console = Console()
 
 
+def _short(text: str, limit: int = 36) -> str:
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
 MODELS = {
     "qwen2-0.5b": {
         "name": "Qwen/Qwen2-0.5B",
@@ -69,13 +73,13 @@ def list_models():
     """List available models"""
     table = Table(title="Available Models", show_header=True, header_style="bold cyan")
     table.add_column("Key", style="cyan")
-    table.add_column("Model", style="white")
+    table.add_column("Model", style="white", no_wrap=True)
     table.add_column("Size", style="yellow")
     table.add_column("Hidden", style="green")
     table.add_column("Description", style="dim")
     
     for key, m in MODELS.items():
-        table.add_row(key, m["name"], m["size"], str(m["hidden"]), m["desc"])
+        table.add_row(key, _short(m["name"]), m["size"], str(m["hidden"]), m["desc"])
     
     console.print(table)
 

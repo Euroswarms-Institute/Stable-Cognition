@@ -21,7 +21,8 @@ class GlobularAgentField(nn.Module):
 
     def __init__(self, cfg: GlobularConfig):
         super().__init__()
-        assert cfg.agent_dim % cfg.num_heads == 0
+        if cfg.agent_dim % cfg.num_heads != 0:
+            raise ValueError("cfg.agent_dim must be divisible by cfg.num_heads")
 
         self.cfg = cfg
         self.head_dim = cfg.agent_dim // cfg.num_heads
@@ -35,6 +36,8 @@ class GlobularAgentField(nn.Module):
         self.context_norm = RMSNorm(cfg.agent_dim)
 
         kv_heads = cfg.kv_heads if cfg.use_gqa else cfg.num_heads
+        if cfg.use_gqa and cfg.num_heads % kv_heads != 0:
+            raise ValueError("cfg.kv_heads must divide cfg.num_heads when use_gqa=True")
 
         self.q_proj = nn.Linear(cfg.agent_dim, cfg.agent_dim, bias=False)
         self.k_proj = nn.Linear(cfg.agent_dim, kv_heads * self.head_dim, bias=False)
@@ -72,10 +75,11 @@ class GlobularAgentField(nn.Module):
                 nn.Linear(cfg.agent_dim, 1),
             )
 
+        evolution_hidden = max(1, cfg.agent_dim // 2)
         self.evolution_gate = nn.Sequential(
-            nn.Linear(cfg.agent_dim + 3, cfg.agent_dim // 2),
+            nn.Linear(cfg.agent_dim + 3, evolution_hidden),
             nn.GELU(),
-            nn.Linear(cfg.agent_dim // 2, 1),
+            nn.Linear(evolution_hidden, 1),
             nn.Sigmoid(),
         )
 
@@ -149,8 +153,8 @@ class GlobularAgentField(nn.Module):
         v = v.view(b, n, kv, hd).transpose(1, 2)
 
         if cfg.use_gqa and kv < h:
-            k = k.repeat(1, h // kv, 1, 1)
-            v = v.repeat(1, h // kv, 1, 1)
+            k = k.repeat_interleave(h // kv, dim=1)
+            v = v.repeat_interleave(h // kv, dim=1)
 
         scores = torch.matmul(q, k.transpose(-1, -2))
         scores = scores / math.sqrt(hd)

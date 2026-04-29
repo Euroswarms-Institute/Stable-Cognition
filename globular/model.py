@@ -134,7 +134,7 @@ class CPUOptimizedModel(nn.Module):
                         "attn": nn.MultiheadAttention(
                             embed_dim=dim, num_heads=4, batch_first=True
                         ),
-                        "globular": GlobularReasoningBlock(CPUOptimizedConfig()),
+                        "globular": GlobularReasoningBlock(CPUOptimizedConfig(dim=dim)),
                         "norm2": RMSNorm(dim),
                         "ff": FeedForward(dim, hidden_mult=4),
                     }

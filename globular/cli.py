@@ -320,7 +320,8 @@ def expert_flow():
         console.print("  [3] Train + Integrate")
     console.print("  [4] Back")
     
-    action = Prompt.ask("[cyan]>[/cyan]", choices=["1", "2", "3", "4"], default="4")
+    action_choices = ["1", "2", "3", "4"] if do_train else ["1", "2", "4"]
+    action = Prompt.ask("[cyan]>[/cyan]", choices=action_choices, default="4")
     
     if action == "1":
         # Save config

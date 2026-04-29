@@ -240,6 +240,13 @@ def train_globular(config: TrainingConfig):
         checkpoint = torch.load(config.resume_from, map_location=device)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        if "scheduler_state_dict" in checkpoint:
+            scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        elif all(group.get("lr", 0.0) == 0.0 for group in optimizer.param_groups):
+            # Older checkpoints saved after a one-epoch cosine schedule can
+            # contain lr=0, which makes resumed training silently inert.
+            for group in optimizer.param_groups:
+                group["lr"] = config.lr
         start_epoch = checkpoint.get("epoch", 0) + 1
         print(f"Resuming from epoch {start_epoch}")
     
@@ -321,6 +328,7 @@ def train_globular(config: TrainingConfig):
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
                 "config": config.to_dict(),
             }, save_path)
             config.save(f"{config.output_dir}/config.json")
