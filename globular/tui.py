@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Rich-based terminal launcher for Globular tools."""
 
-from __future__ import annotations
 
-import subprocess
+"""
+Globular TUI - Rich-based Terminal UI Launcher
+"""
+
 import sys
+import subprocess
+from __future__ import annotations
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -21,7 +24,6 @@ def star_growth_chart():
     from globular.cli import auto_scale
 
     data = [(16, 3), (32, 10), (64, 30), (128, 80), (256, 180), (512, 450), (1024, 1000)]
-
     table = Table(title="Star Growth Chart (params in millions)", show_header=True, header_style="bold cyan")
     table.add_column("Agents", style="cyan", justify="right")
     table.add_column("Params (M)", style="green", justify="right")
