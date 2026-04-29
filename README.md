@@ -30,7 +30,7 @@ A novel reasoning architecture for language models, inspired by globular cluster
 ```bash
 # Clone
 git clone https://github.com/Euroswarms-Institute/Stable-Cognition.git
-cd stable-cognition
+cd Stable-Cognition
 
 # Install
 pip install -r requirements.txt
