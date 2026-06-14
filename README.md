@@ -1,4 +1,4 @@
-# 🧠 Globular Reasoning Architecture
+#  Globular Reasoning Architecture
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.2.0-blue?style=flat-square" alt="Version">
@@ -12,7 +12,7 @@ A novel reasoning architecture for language models, inspired by globular cluster
 
 ---
 
-## ✨ Features
+##  Features
 
 | Feature | Description |
 |---------|-------------|
@@ -25,7 +25,7 @@ A novel reasoning architecture for language models, inspired by globular cluster
 
 ---
 
-## 🚀 Installation
+##  Installation
 
 ```bash
 # Clone
@@ -41,7 +41,7 @@ pip install torch transformers rich huggingface-hub
 
 ---
 
-## 📊 Growth Chart
+##  Growth Chart
 
 ```
 Agents → Parameters (per layer at hidden=4096)
@@ -59,7 +59,7 @@ Agents → Parameters (per layer at hidden=4096)
 
 ---
 
-## 🎯 Quick Start
+##  Quick Start
 
 ### Interactive CLI (Recommended)
 ```bash
@@ -101,7 +101,7 @@ python -m globular.hub --download qwen2-0.5b
 
 ---
 
-## 📖 Usage Examples
+##  Usage Examples
 
 ### Basic Integration
 ```python
@@ -149,7 +149,7 @@ train_globular(config)
 
 ---
 
-## 🔧 Configuration Options
+##  Configuration Options
 
 | Option | Description | Default |
 |--------|-------------|----------|
@@ -172,7 +172,7 @@ train_globular(config)
 
 ---
 
-## 📁 Project Structure
+##  Project Structure
 
 ```
 globular/
@@ -197,7 +197,7 @@ globular/
 
 ---
 
-## 🏆 Performance
+##  Performance
 
 | Model Size | Agents | GPU | Params/Layer | Time/Epoch |
 |------------|--------|-----|------|-------------|------------|
@@ -208,7 +208,7 @@ globular/
 
 ---
 
-## 🔗 Links
+##  Links
 
 - [HuggingFace Hub](https://huggingface.co/globular)
 - [PyTorch](https://pytorch.org)
@@ -216,12 +216,12 @@ globular/
 
 ---
 
-## 📜 License
+##  License
 
 Apache 2.0 - See LICENSE file.
 
 ---
 
 <p align="center">
-  <sub>Built with ⚡ by the Globular Team</sub>
+  <sub>Built with PyTorch by the Euroswarms Institute for Collective Intelligence Research</sub>
 </p>
